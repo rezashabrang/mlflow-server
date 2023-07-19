@@ -1,0 +1,102 @@
+version: '3.7'
+
+services:
+  mlflow-postgres:
+    restart: always
+    image: postgres:15.3
+    container_name: mlflow-postgres
+    expose:
+      - "5432"
+    networks:
+      - mlflow-net
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgresvol:/var/lib/postgresql/data
+
+  mlflow-server:
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+      args:
+        - http_proxy=http://10.0.10.10:8080
+        - https_proxy=http://10.0.10.10:8080
+    image: mlflow-base
+    container_name: mlflow-server
+    environment:
+      - MLFLOW_HOST=${MLFLOW_HOST}
+      - MLFLOW_WORKERS=${MLFLOW_WORKERS}
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=${MLFLOW_DEFAULT_ARTIFACT_ROOT}
+      - MLFLOW_BACKEND_STORE_URI=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@mlflow-postgres:${POSTGRES_PORT}/${POSTGRES_DB}
+      - MLFLOW_GUNICORN_OPTS=${MLFLOW_GUNICORN_OPTS}
+      - MLFLOW_SERVE_ARTIFACTS=${MLFLOW_SERVE_ARTIFACTS}
+      - MLFLOW_ARTIFACTS_DESTINATION=${MLFLOW_ARTIFACTS_DESTINATION}
+
+    ports:
+      - 5000:5000
+    networks:
+      - mlflow-net
+    command: mlflow server
+    volumes:
+      - mlflowvol:/home/artifacts
+    depends_on:
+      - mlflow-postgres
+
+
+  nginx:
+    restart: always
+    image: nginx:1.25.1-alpine
+    container_name: mlflow-nginx
+    ports:
+      - "80:80"
+    networks:
+      - mlflow-net
+    depends_on:
+      - mlflow-server
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: always
+    ports:
+      - "8085:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: rezashabrang.m@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    volumes:
+      - pgadminvol:/var/lib/pgadmin
+    networks:
+      - mlflow-net
+
+networks:
+  mlflow-net:
+    name: mlflow-net
+
+volumes:
+  mlflowvol:
+    name: mlflowvol
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/data/mlflow-server/mlflow-volume/'
+
+  pgadminvol:
+    name: pgadminvol
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/data/mlflow-server/pgadmin-volume/'
+
+  postgresvol:
+    name: postgresvol
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/data/mlflow-server/postgres-volume/'
+
